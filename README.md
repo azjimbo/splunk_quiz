@@ -188,6 +188,6 @@ The questions were written and checked by AI against the Splunk documentation, t
 
 ## License and attribution
 
-- The app code (dashboards, configuration, `build_lookup.py`) is released under the license in `LICENSE` (add one before publishing, for example MIT or Apache-2.0).
+- The app code (dashboards, configuration, `build_lookup.py`) is released without warranty or guarantee of any kind.  Do not use this for any personnel actions or hiring decisions.  This is for entertainment only.  
 - The questions are derived from the publicly available **Splunk Enterprise Search Reference** documentation. They are original questions and explanations, but the underlying facts come from Splunk's documentation, which is copyright Splunk Inc. This project is not affiliated with or endorsed by Splunk.
 - Splunk is a trademark of Splunk Inc.
