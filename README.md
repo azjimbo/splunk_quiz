@@ -9,7 +9,7 @@ A self-contained **SPL knowledge quiz** for Splunk, built entirely with **Dashbo
 - **Per-user scoring and a leaderboard** with category breakdowns and full answer history
 - **No KV Store, no custom code, no add-ons**: two dashboards, two CSV lookups, and a few `.conf` files
 
-> **Screenshots:** add `docs/quiz.png` and `docs/leaderboard.png` here before publishing.
+> **Screenshots:**  `docs/quiz.png` 
 
 ---
 
