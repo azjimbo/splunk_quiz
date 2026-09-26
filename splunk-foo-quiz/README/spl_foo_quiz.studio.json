@@ -1,0 +1,382 @@
+{
+  "title": "SPL Foo Quiz",
+  "description": "Randomized multiple-choice SPL knowledge quiz",
+  "inputs": {
+    "in_cats": {
+      "type": "input.multiselect",
+      "title": "Categories",
+      "options": {
+        "items": [
+          {
+            "label": "— ALL —",
+            "value": "*"
+          }
+        ],
+        "defaultValue": [
+          "*"
+        ],
+        "token": "tok_cats"
+      },
+      "dataSources": {
+        "primary": "ds_cats"
+      }
+    }
+  },
+  "dataSources": {
+    "ds_cats": {
+      "type": "ds.search",
+      "name": "ds_cats",
+      "options": {
+        "query": "| inputlookup spl_quiz_questions | stats count by category | sort category | fields category"
+      }
+    },
+    "ds_pick_question": {
+      "type": "ds.search",
+      "name": "ds_pick_question",
+      "options": {
+        "query": "| inputlookup spl_quiz_questions\n| eval _picked=\",\" . \"$tok_cats$\" . \",\"\n| where like(_picked,\"%,*,%\") OR like(_picked,\"%,\" . category . \",%\")\n| eval _user=$env:user|s$\n| lookup spl_quiz_results user as _user qid OUTPUT is_correct as _already\n| where isnull(_already)\n| eval _r=random() | sort 0 _r | head 1\n| eval choice=mvappend(\"A) \" . option_a,\"B) \" . option_b,\"C) \" . option_c,\"D) \" . option_d)\n| fields qid choice | mvexpand choice\n| table choice qid"
+      }
+    },
+    "ds_question_display": {
+      "type": "ds.chain",
+      "name": "ds_question_display",
+      "options": {
+        "extend": "ds_pick_question",
+        "query": "| head 1\n| lookup spl_quiz_questions qid OUTPUT category question\n| rename qid as \"#\", category as Category, question as Question\n| table Question Category \"#\""
+      }
+    },
+    "ds_record_answer": {
+      "type": "ds.search",
+      "name": "ds_record_answer",
+      "options": {
+        "query": "| inputlookup spl_quiz_questions where qid=$tok_qid|s$\n| eval user=$env:user|s$, _raw=$tok_choice_raw|s$, selected=upper(substr(_raw,1,1))\n| where match(selected,\"^[A-D]$\")\n| eval is_correct=if(selected==correct_answer,1,0), answered_time=now()\n| fields user qid category selected correct_answer is_correct answered_time\n| outputlookup append=true spl_quiz_results\n| lookup spl_quiz_questions qid OUTPUT explanation\n| eval verdict=if(is_correct==1,\"CORRECT\",\"INCORRECT\")\n| rename selected as your_answer\n| table verdict your_answer correct_answer explanation"
+      }
+    },
+    "ds_next": {
+      "type": "ds.search",
+      "name": "ds_next",
+      "options": {
+        "query": "| makeresults | eval label=\"▶ NEXT QUESTION\" | table label"
+      }
+    },
+    "ds_header": {
+      "type": "ds.search",
+      "name": "ds_header",
+      "options": {
+        "query": "| makeresults | eval label=\"SPL FOO QUIZ  |  Player: \" . $env:user|s$ | table label"
+      }
+    },
+    "ds_score_totals": {
+      "type": "ds.search",
+      "name": "ds_score_totals",
+      "options": {
+        "query": "| inputlookup spl_quiz_results where user=$env:user|s$\n| stats latest(is_correct) as is_correct by qid\n| stats count as answered sum(is_correct) as correct\n| eval correct=coalesce(correct,0), pct_correct=round(100*correct/max(answered,1),1)",
+        "refresh": "10s",
+        "refreshType": "delay"
+      }
+    },
+    "ds_answered": {
+      "type": "ds.chain",
+      "name": "ds_answered",
+      "options": {
+        "extend": "ds_score_totals",
+        "query": "| fields answered"
+      }
+    },
+    "ds_correct": {
+      "type": "ds.chain",
+      "name": "ds_correct",
+      "options": {
+        "extend": "ds_score_totals",
+        "query": "| fields correct"
+      }
+    },
+    "ds_overall": {
+      "type": "ds.chain",
+      "name": "ds_overall",
+      "options": {
+        "extend": "ds_score_totals",
+        "query": "| fields pct_correct"
+      }
+    },
+    "ds_score_by_cat": {
+      "type": "ds.search",
+      "name": "ds_score_by_cat",
+      "options": {
+        "query": "| inputlookup spl_quiz_results where user=$env:user|s$\n| stats latest(is_correct) as is_correct latest(category) as category by qid\n| stats count as answered sum(is_correct) as correct by category\n| eval pct_correct=round(100*correct/answered,1)\n| sort - pct_correct\n| table category answered correct pct_correct",
+        "refresh": "10s",
+        "refreshType": "delay"
+      }
+    }
+  },
+  "visualizations": {
+    "viz_header": {
+      "type": "splunk.singlevalue",
+      "dataSources": {
+        "primary": "ds_header"
+      },
+      "options": {
+        "majorFontSize": 34,
+        "backgroundColor": "transparent",
+        "majorColor": "#FFFFFF"
+      }
+    },
+    "viz_answered": {
+      "type": "splunk.singlevalue",
+      "title": "Answered",
+      "dataSources": {
+        "primary": "ds_answered"
+      },
+      "options": {
+        "backgroundColor": "transparent"
+      }
+    },
+    "viz_correct": {
+      "type": "splunk.singlevalue",
+      "title": "Correct",
+      "dataSources": {
+        "primary": "ds_correct"
+      },
+      "options": {
+        "backgroundColor": "transparent",
+        "majorColor": "#118832"
+      }
+    },
+    "viz_overall": {
+      "type": "splunk.singlevalue",
+      "title": "Overall %",
+      "dataSources": {
+        "primary": "ds_overall"
+      },
+      "options": {
+        "backgroundColor": "transparent",
+        "unit": "%"
+      }
+    },
+    "viz_question": {
+      "type": "splunk.table",
+      "title": "Question",
+      "dataSources": {
+        "primary": "ds_question_display"
+      },
+      "options": {
+        "showRowNumbers": false,
+        "count": 1
+      }
+    },
+    "viz_choices": {
+      "type": "splunk.table",
+      "title": "Choose One",
+      "dataSources": {
+        "primary": "ds_pick_question"
+      },
+      "options": {
+        "showRowNumbers": false,
+        "count": 4
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.setToken",
+          "options": {
+            "tokens": [
+              {
+                "token": "tok_choice_raw",
+                "key": "value"
+              },
+              {
+                "token": "tok_qid",
+                "key": "row.qid.value"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "viz_by_cat": {
+      "type": "splunk.table",
+      "title": "Your % Correct by Category",
+      "dataSources": {
+        "primary": "ds_score_by_cat"
+      },
+      "options": {
+        "showRowNumbers": false,
+        "count": 20
+      }
+    },
+    "viz_result": {
+      "type": "splunk.table",
+      "title": "Result",
+      "dataSources": {
+        "primary": "ds_record_answer"
+      },
+      "options": {
+        "showRowNumbers": false,
+        "count": 1,
+        "columnFormat": {
+          "verdict": {
+            "data": "> table | seriesByName('verdict') | formatByType(verdictColumnFormatEditorConfig)",
+            "rowBackgroundColors": "> table | seriesByName('verdict') | matchValue(verdictRowColorConfig)"
+          }
+        }
+      },
+      "context": {
+        "verdictColumnFormatEditorConfig": {
+          "string": {
+            "unitPosition": "after"
+          }
+        },
+        "verdictRowColorConfig": [
+          {
+            "match": "CORRECT",
+            "value": "#118832"
+          },
+          {
+            "match": "INCORRECT",
+            "value": "#D41F1F"
+          },
+          {
+            "value": "transparent"
+          }
+        ]
+      }
+    },
+    "viz_next": {
+      "type": "splunk.singlevalue",
+      "dataSources": {
+        "primary": "ds_next"
+      },
+      "options": {
+        "majorFontSize": 30,
+        "backgroundColor": "#1A4B8C",
+        "majorColor": "#FFFFFF",
+        "underLabel": "(or skip this question)",
+        "underLabelFontSize": 22
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.linkToDashboard",
+          "options": {
+            "app": "splunk-foo-quiz",
+            "dashboard": "spl_foo_quiz",
+            "newTab": false,
+            "tokens": [
+              {
+                "token": "tok_cats",
+                "value": "$tok_cats$"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "layout": {
+    "type": "grid",
+    "options": {
+      "width": 1200,
+      "height": 810
+    },
+    "structure": [
+      {
+        "item": "viz_header",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 0,
+          "w": 1200,
+          "h": 100
+        }
+      },
+      {
+        "item": "viz_answered",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 100,
+          "w": 183,
+          "h": 140
+        }
+      },
+      {
+        "item": "viz_correct",
+        "type": "block",
+        "position": {
+          "x": 183,
+          "y": 100,
+          "w": 183,
+          "h": 140
+        }
+      },
+      {
+        "item": "viz_overall",
+        "type": "block",
+        "position": {
+          "x": 366,
+          "y": 100,
+          "w": 184,
+          "h": 140
+        }
+      },
+      {
+        "item": "viz_question",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 240,
+          "w": 550,
+          "h": 150
+        }
+      },
+      {
+        "item": "viz_choices",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 390,
+          "w": 550,
+          "h": 250
+        }
+      },
+      {
+        "item": "in_cats",
+        "type": "input",
+        "position": {
+          "x": 550,
+          "y": 100,
+          "w": 250,
+          "h": 540
+        }
+      },
+      {
+        "item": "viz_by_cat",
+        "type": "block",
+        "position": {
+          "x": 800,
+          "y": 100,
+          "w": 400,
+          "h": 540
+        }
+      },
+      {
+        "item": "viz_result",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 640,
+          "w": 900,
+          "h": 170
+        }
+      },
+      {
+        "item": "viz_next",
+        "type": "block",
+        "position": {
+          "x": 900,
+          "y": 640,
+          "w": 300,
+          "h": 170
+        }
+      }
+    ]
+  }
+}

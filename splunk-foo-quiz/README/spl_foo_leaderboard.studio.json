@@ -1,0 +1,222 @@
+{
+  "title": "SPL Foo Leaderboard",
+  "description": "Per-user standings for the SPL Foo Quiz",
+  "dataSources": {
+    "ds_overall": {
+      "type": "ds.search",
+      "name": "ds_overall",
+      "options": {
+        "query": "| inputlookup spl_quiz_results\n| stats latest(is_correct) as is_correct by user qid\n| stats count as answered sum(is_correct) as correct by user\n| appendcols [ | inputlookup spl_quiz_questions | stats count as total ]\n| filldown total\n| eval remaining=total-answered, pct_correct=round(100*correct/max(answered,1),1)\n| sort - pct_correct - answered\n| table user answered correct pct_correct remaining",
+        "refresh": "30s",
+        "refreshType": "delay"
+      }
+    },
+    "ds_cat_all": {
+      "type": "ds.search",
+      "name": "ds_cat_all",
+      "options": {
+        "query": "| inputlookup spl_quiz_results\n| stats latest(is_correct) as is_correct latest(category) as category by user qid\n| stats count as answered sum(is_correct) as correct by user category\n| eval pct=round(100*correct/answered,1)\n| chart first(pct) over user by category",
+        "refresh": "30s",
+        "refreshType": "delay"
+      }
+    },
+    "ds_cat_user": {
+      "type": "ds.search",
+      "name": "ds_cat_user",
+      "options": {
+        "query": "| inputlookup spl_quiz_results where user=$tok_user|s$\n| stats latest(is_correct) as is_correct latest(category) as category by user qid\n| stats count as answered sum(is_correct) as correct by category\n| eval pct_correct=round(100*correct/answered,1)\n| sort category\n| table category pct_correct"
+      }
+    },
+    "ds_unanswered": {
+      "type": "ds.search",
+      "name": "ds_unanswered",
+      "options": {
+        "query": "| inputlookup spl_quiz_questions\n| join type=left qid [ | inputlookup spl_quiz_results where user=$tok_user|s$ | stats count as n_ans by qid ]\n| where isnull(n_ans)\n| stats count as remaining by category\n| sort - remaining"
+      }
+    },
+    "ds_history": {
+      "type": "ds.search",
+      "name": "ds_history",
+      "options": {
+        "query": "| inputlookup spl_quiz_results where user=$tok_user|s$\n| sort 0 - answered_time\n| dedup user qid\n| eval verdict=if(is_correct==1,\"CORRECT\",\"INCORRECT\"), answered=strftime(answered_time,\"%Y-%m-%d %H:%M:%S\")\n| table user qid category selected correct_answer verdict answered"
+      }
+    },
+    "ds_detail": {
+      "type": "ds.search",
+      "name": "ds_detail",
+      "options": {
+        "query": "| inputlookup spl_quiz_questions where qid=$tok_qid_focus|s$\n| eval kv=mvappend(\"Question|\" . question,\"Category|\" . category,\n   \"A|\" . option_a,\"B|\" . option_b,\"C|\" . option_c,\"D|\" . option_d,\n   \"Correct|\" . correct_answer,\"Explanation|\" . explanation)\n| fields kv | mvexpand kv\n| rex field=kv \"^(?<field>[^|]+)\\|(?<value>.*)\"\n| table field value"
+      }
+    }
+  },
+  "visualizations": {
+    "viz_overall": {
+      "type": "splunk.table",
+      "title": "Overall Standings (click a user name)",
+      "dataSources": {
+        "primary": "ds_overall"
+      },
+      "options": {
+        "showRowNumbers": true,
+        "count": 15
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.setToken",
+          "options": {
+            "tokens": [
+              {
+                "token": "tok_user",
+                "key": "value"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "viz_cat_all": {
+      "type": "splunk.table",
+      "title": "Category % Correct — All Users",
+      "dataSources": {
+        "primary": "ds_cat_all"
+      },
+      "options": {
+        "count": 15
+      }
+    },
+    "viz_cat_user": {
+      "type": "splunk.bar",
+      "title": "Category Breakdown — user: $tok_user$ (* = all users)",
+      "dataSources": {
+        "primary": "ds_cat_user"
+      },
+      "options": {
+        "yAxisTitleText": "% correct",
+        "xAxisTitleVisibility": "hide",
+        "yAxisMax": 100
+      }
+    },
+    "viz_unanswered": {
+      "type": "splunk.bar",
+      "title": "Unanswered by Category — user: $tok_user$ (* = all users)",
+      "dataSources": {
+        "primary": "ds_unanswered"
+      },
+      "options": {
+        "yAxisTitleText": "remaining",
+        "xAxisTitleVisibility": "hide"
+      }
+    },
+    "viz_history": {
+      "type": "splunk.table",
+      "title": "Answer History — user: $tok_user$ (click anywhere on a row)",
+      "dataSources": {
+        "primary": "ds_history"
+      },
+      "options": {
+        "count": 15
+      },
+      "eventHandlers": [
+        {
+          "type": "drilldown.setToken",
+          "options": {
+            "tokens": [
+              {
+                "token": "tok_qid_focus",
+                "key": "row.qid.value"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "viz_detail": {
+      "type": "splunk.table",
+      "title": "Question Detail — qid $tok_qid_focus$",
+      "dataSources": {
+        "primary": "ds_detail"
+      },
+      "options": {
+        "count": 10
+      }
+    }
+  },
+  "layout": {
+    "type": "grid",
+    "options": {
+      "width": 1200,
+      "height": 1150
+    },
+    "structure": [
+      {
+        "item": "viz_overall",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 0,
+          "w": 600,
+          "h": 400
+        }
+      },
+      {
+        "item": "viz_cat_all",
+        "type": "block",
+        "position": {
+          "x": 600,
+          "y": 0,
+          "w": 600,
+          "h": 400
+        }
+      },
+      {
+        "item": "viz_cat_user",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 400,
+          "w": 600,
+          "h": 330
+        }
+      },
+      {
+        "item": "viz_unanswered",
+        "type": "block",
+        "position": {
+          "x": 600,
+          "y": 400,
+          "w": 600,
+          "h": 330
+        }
+      },
+      {
+        "item": "viz_history",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 730,
+          "w": 700,
+          "h": 420
+        }
+      },
+      {
+        "item": "viz_detail",
+        "type": "block",
+        "position": {
+          "x": 700,
+          "y": 730,
+          "w": 500,
+          "h": 420
+        }
+      }
+    ]
+  },
+  "defaults": {
+    "tokens": {
+      "default": {
+        "tok_user": {
+          "value": "*"
+        }
+      }
+    }
+  }
+}
